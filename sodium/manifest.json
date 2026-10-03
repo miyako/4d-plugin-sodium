@@ -1,0 +1,21 @@
+{
+    "name": "sodium",
+    "id": 31100,
+    "commands": [
+        {
+            "theme": "Argon2",
+            "syntax": "Argon2 Generate password hash(&T;&J):T",
+            "threadSafe": true
+        },
+        {
+            "theme": "Argon2",
+            "syntax": "Argon2 Verify password hash(&T;&T):V",
+            "threadSafe": true
+        },
+        {
+            "theme": "Argon2",
+            "syntax": "Argon2 Hash needs rehash(&T;&J):V",
+            "threadSafe": true
+        }
+    ]
+}
