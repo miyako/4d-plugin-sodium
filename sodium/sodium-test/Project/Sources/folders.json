@@ -1,0 +1,11 @@
+{
+    "Tests": {
+        "methods": [
+            "test_all",
+            "test_errors",
+            "test_argon2",
+            "test_argon2_errors"
+        ]
+    },
+    "trash": {}
+}
