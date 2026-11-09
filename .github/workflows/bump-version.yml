@@ -16,45 +16,41 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: bump-version-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   bump:
     runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
     steps:
       - name: checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: bump VERSION
+      - name: bump coordinated source version
         id: bump
+        env:
+          MODE: ${{ inputs.mode }}
+          SELECTED_BRANCH: ${{ github.ref_name }}
+          SELECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          CURRENT=$(cat VERSION)
-          if [ -z "$CURRENT" ]; then
-            echo "Could not read VERSION file" >&2
+          REMOTE_SHA=$(git ls-remote --exit-code origin "refs/heads/$SELECTED_BRANCH" | cut -f1)
+          if [ "$REMOTE_SHA" != "$SELECTED_SHA" ]; then
+            echo "Selected branch moved; dispatch Bump version again." >&2
             exit 1
           fi
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          case "${{ inputs.mode }}" in
-            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH+1)) ;;
-          esac
-          NEW="${MAJOR}.${MINOR}.${PATCH}"
-
-          echo "Bumping ${CURRENT} -> ${NEW}"
-          echo "$NEW" > VERSION
-
+          NEW=$(python3 .github/scripts/release.py bump --mode "$MODE")
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add VERSION
           git commit -m "chore: bump version to ${NEW}"
-          git tag "v${NEW}"
-          git push origin HEAD:"${GITHUB_REF_NAME}"
-          git push origin "v${NEW}"
-
+          git push origin "HEAD:refs/heads/$SELECTED_BRANCH"
           echo "version=${NEW}" >> "$GITHUB_OUTPUT"
 
       - name: summary
-        run: echo "### Bumped to v${{ steps.bump.outputs.version }} — release.yml will pick up the pushed tag." >> "$GITHUB_STEP_SUMMARY"
+        run: echo "### Bumped source metadata to ${{ steps.bump.outputs.version }}. No tag or release created. Run Build separately on the intended branch." >> "$GITHUB_STEP_SUMMARY"
