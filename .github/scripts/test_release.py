@@ -112,9 +112,11 @@ class PublicationTests(unittest.TestCase):
             ("git", "rev-parse", "HEAD"), ("check", "owner/repo", "v2.3.4"),
             ("git", "tag", "v2.3.4", SHA),
             ("git", "push", "origin", "refs/tags/v2.3.4:refs/tags/v2.3.4"),
-            ("gh", "release", "create", "v2.3.4", *self.assets,
-             "--repo", "owner/repo", "--verify-tag", "--title", "v2.3.4",
-             "--notes", f"Built from {SHA}."),
+            ("gh", "api", "--method", "POST", "repos/owner/repo/releases",
+             "-f", "tag_name=v2.3.4", "-f", f"target_commitish={SHA}",
+             "-f", "name=v2.3.4", "-f", f"body=Built from {SHA}.",
+             "-F", "draft=false", "-F", "prerelease=false"),
+            ("gh", "release", "upload", "v2.3.4", *self.assets, "--repo", "owner/repo"),
         ])
 
     def test_existing_publication_blocks_tag(self):
@@ -160,15 +162,47 @@ class PublicationTests(unittest.TestCase):
                 self.publish()
             self.assertEqual(run.call_count, 3)
 
-    def test_release_failure_explains_partial_state_without_rollback(self):
-        failure = subprocess.CalledProcessError(1, ["gh"], stderr="upload failed")
-        with patch.object(release, "available"), \
-             patch.object(release, "run", side_effect=[SHA, "", "", failure]) as run, \
-             contextlib.redirect_stderr(io.StringIO()) as errors:
-            with self.assertRaises(subprocess.CalledProcessError):
-                self.publish()
-            self.assertIn("recover manually", errors.getvalue())
-            self.assertEqual(run.call_count, 4)
+    def test_creation_and_upload_failures_preserve_partial_state(self):
+        for failing_step in ("create", "upload"):
+            with self.subTest(failing_step=failing_step):
+                remote = {"tag": None, "release": False, "assets": []}
+                commands = []
+
+                def execute(*args):
+                    commands.append(args)
+                    if args == ("git", "rev-parse", "HEAD"):
+                        return SHA
+                    if args[:2] == ("git", "tag"):
+                        return ""
+                    if args[:2] == ("git", "push"):
+                        remote["tag"] = SHA
+                        return ""
+                    if args[:4] == ("gh", "api", "--method", "POST"):
+                        if failing_step == "create":
+                            raise subprocess.CalledProcessError(1, args, stderr="creation failed")
+                        remote["release"] = True
+                        return "{}"
+                    if args[:3] == ("gh", "release", "upload"):
+                        remote["assets"].append(self.assets[0])
+                        raise subprocess.CalledProcessError(1, args, stderr="upload failed")
+                    self.fail(f"Unexpected publication command: {args}")
+
+                summary = Path(self.temp.name) / "summary"
+                with patch.object(release, "available"), \
+                     patch.object(release, "run", side_effect=execute), \
+                     patch.dict(release.os.environ, {"GITHUB_STEP_SUMMARY": str(summary)}), \
+                     contextlib.redirect_stderr(io.StringIO()) as errors:
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self.publish()
+                self.assertEqual(remote["tag"], SHA)
+                self.assertEqual(remote["release"], failing_step == "upload")
+                self.assertEqual(remote["assets"], self.assets[:1] if failing_step == "upload" else [])
+                self.assertIn("recover manually", errors.getvalue())
+                self.assertIn("never deletes or overwrites", summary.read_text())
+                self.assertEqual(len(commands), 4 if failing_step == "create" else 5)
+                for args in commands:
+                    self.assertFalse({"DELETE", "PATCH", "--clobber", "--force", "--delete",
+                                      "delete", "edit", "create"}.intersection(args))
 
     def test_notary_must_accept(self):
         path = Path(self.temp.name) / "notary.json"

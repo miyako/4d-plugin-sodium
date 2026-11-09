@@ -83,8 +83,11 @@ def publish(repo, tag, sha, assets):
     run("git", "tag", tag, sha)
     run("git", "push", "origin", f"refs/tags/{tag}:refs/tags/{tag}")
     try:
-        run("gh", "release", "create", tag, *assets, "--repo", repo,
-            "--verify-tag", "--title", tag, "--notes", f"Built from {sha}.")
+        run("gh", "api", "--method", "POST", f"repos/{repo}/releases",
+            "-f", f"tag_name={tag}", "-f", f"target_commitish={sha}",
+            "-f", f"name={tag}", "-f", f"body=Built from {sha}.",
+            "-F", "draft=false", "-F", "prerelease=false")
+        run("gh", "release", "upload", tag, *assets, "--repo", repo)
     except subprocess.CalledProcessError:
         message = (f"Tag {tag} was pushed at {sha}, but release creation/upload failed. "
                    "Inspect the remote tag/release/assets and recover manually; "

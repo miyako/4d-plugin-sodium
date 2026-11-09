@@ -140,7 +140,11 @@ branches. The Windows x64 artifact is merged into the universal macOS bundle;
 the ZIP and DMG are signed/notarized as before, with explicit notarization
 acceptance and stapling checks. Only after these succeed does Build recheck
 availability, non-force push the tag at the selected SHA, and create a new release
-with both assets. It never replaces existing tags, releases, or assets.
+via a create-only API POST with explicit tag, selected SHA, name, and
+`draft=false` / `prerelease=false`, retaining the commit-reference release notes.
+It then uploads both assets without `--clobber`. It never replaces existing
+tags, releases, or assets, and does not use `gh release create`, whose failure
+cleanup can delete a partially created release.
 
 If tag push succeeds but release creation/upload fails, the tag (and any partial
 release/assets) remains. The workflow reports this partial state; inspect and
