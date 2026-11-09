@@ -56,17 +56,31 @@ def run(*args):
 def available(repo, tag):
     if not re.fullmatch(VERSION_PATTERN, tag.removeprefix("v")) or not tag.startswith("v"):
         raise ValueError("Invalid release tag")
-    for endpoint in (f"git/ref/tags/{tag}", f"releases/tags/{tag}"):
-        result = subprocess.run(
-            ["gh", "api", "--include", f"repos/{repo}/{endpoint}"],
-            text=True, capture_output=True,
-        )
-        status = re.search(r"^HTTP/\S+ (\d{3})", result.stdout, re.MULTILINE)
-        if status and status[1] == "200" and result.returncode == 0:
-            raise ValueError(f"{tag} already exists: {endpoint}")
-        if not (status and status[1] == "404" and result.returncode != 0):
-            raise RuntimeError(f"Cannot establish availability of {endpoint}: "
-                               f"{result.stderr.strip()} {result.stdout.strip()}")
+    endpoint = f"git/ref/tags/{tag}"
+    result = subprocess.run(
+        ["gh", "api", "--include", f"repos/{repo}/{endpoint}"],
+        text=True, capture_output=True,
+    )
+    status = re.search(r"^HTTP/\S+ (\d{3})", result.stdout, re.MULTILINE)
+    if status and status[1] == "200" and result.returncode == 0:
+        raise ValueError(f"{tag} already exists: {endpoint}")
+    if not (status and status[1] == "404" and result.returncode != 0):
+        raise RuntimeError(f"Cannot establish availability of {endpoint}: "
+                           f"{result.stderr.strip()} {result.stdout.strip()}")
+    pages = json.loads(run("gh", "api", "--paginate", "--slurp",
+                           f"repos/{repo}/releases?per_page=100"))
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("Malformed paginated releases response")
+    for page in pages:
+        if not isinstance(page, list):
+            raise ValueError("Malformed releases page")
+        for item in page:
+            if (not isinstance(item, dict)
+                    or not isinstance(item.get("tag_name"), str)
+                    or not item["tag_name"]):
+                raise ValueError("Malformed release metadata")
+            if item["tag_name"] == tag:
+                raise ValueError(f"{tag} already exists: release (including drafts)")
 
 
 def publish(repo, tag, sha, assets):

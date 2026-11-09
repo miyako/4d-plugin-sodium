@@ -134,9 +134,11 @@ already-moved branch, and uses a normal non-force branch push to reject concurre
 updates. Bumping never starts Build; run Build separately on the intended branch.
 
 Build pins every checkout to the dispatch's immutable `github.sha`, even if the
-branch later moves. It rejects existing `vX.Y.Z` tags **or** releases and fails
-on metadata drift or API errors. Publication runs are serialized across all
-branches. The Windows x64 artifact is merged into the universal macOS bundle;
+branch later moves. It rejects existing `vX.Y.Z` tags **or** releases, including
+same-tag drafts without a remote tag, using an authenticated, fully paginated
+release listing. Listing/API errors (including 404s), failed later pages, and
+malformed responses block publication, as does metadata drift. Publication runs
+are serialized across all branches. The Windows x64 artifact is merged into the universal macOS bundle;
 the ZIP and DMG are signed/notarized as before, with explicit notarization
 acceptance and stapling checks. Only after these succeed does Build recheck
 availability, non-force push the tag at the selected SHA, and create a new release

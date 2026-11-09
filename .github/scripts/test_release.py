@@ -1,5 +1,6 @@
 import contextlib
 import io
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -68,15 +69,55 @@ class AvailabilityTests(unittest.TestCase):
         return subprocess.CompletedProcess([], code, f"HTTP/2.0 {status}\n\n{{}}", "API error")
 
     def test_only_confirmed_missing_is_available(self):
-        with patch.object(release.subprocess, "run", return_value=self.response(404, 1)) as api:
+        with patch.object(release.subprocess, "run", return_value=self.response(404, 1)), \
+             patch.object(release, "run", return_value="[[]]") as listing:
             release.available("owner/repo", "v2.3.4")
-        self.assertEqual(api.call_count, 2)
+        listing.assert_called_once_with("gh", "api", "--paginate", "--slurp",
+                                        "repos/owner/repo/releases?per_page=100")
 
-    def test_existing_tag_or_release(self):
-        for responses in ([self.response(200, 0)],
-                          [self.response(404, 1), self.response(200, 0)]):
-            with patch.object(release.subprocess, "run", side_effect=responses):
+    def test_existing_tag(self):
+        with patch.object(release.subprocess, "run", return_value=self.response(200, 0)), \
+             patch.object(release, "run") as listing:
+            with self.assertRaisesRegex(ValueError, "already exists"):
+                release.available("owner/repo", "v2.3.4")
+            listing.assert_not_called()
+
+    def test_published_or_draft_release_on_later_page(self):
+        for draft in (False, True):
+            pages = [[{"tag_name": "v1.0.0", "draft": False}],
+                     [{"tag_name": "v2.3.4", "draft": draft}]]
+            with self.subTest(draft=draft), \
+                 patch.object(release.subprocess, "run", return_value=self.response(404, 1)), \
+                 patch.object(release, "run", return_value=json.dumps(pages)):
                 with self.assertRaisesRegex(ValueError, "already exists"):
+                    release.available("owner/repo", "v2.3.4")
+
+    def test_unrelated_releases_are_available(self):
+        pages = [[{"tag_name": "v1.0.0", "draft": True}],
+                 [{"tag_name": "v3.0.0", "draft": False}]]
+        with patch.object(release.subprocess, "run", return_value=self.response(404, 1)), \
+             patch.object(release, "run", return_value=json.dumps(pages)):
+            release.available("owner/repo", "v2.3.4")
+
+    def test_list_errors_fail_closed_including_later_page_failure(self):
+        for status in ("401", "403", "404", "429", "500", "network failure", "page 2 failed"):
+            failure = subprocess.CalledProcessError(
+                1, ["gh", "api", "--paginate", "--slurp"],
+                output='[[{"tag_name":"v1.0.0"}]]', stderr=status)
+            with self.subTest(status=status), \
+                 patch.object(release.subprocess, "run", return_value=self.response(404, 1)), \
+                 patch.object(release, "run", side_effect=failure):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    release.available("owner/repo", "v2.3.4")
+
+    def test_malformed_listing_fails_closed(self):
+        for data in ("not json", "null", "{}", "[]", "[{}]", "[[], {}]",
+                     "[[null]]", "[[{}]]", '[[{"tag_name": 123}]]',
+                     '[[{"tag_name": ""}]]'):
+            with self.subTest(data=data), \
+                 patch.object(release.subprocess, "run", return_value=self.response(404, 1)), \
+                 patch.object(release, "run", return_value=data):
+                with self.assertRaises(ValueError):
                     release.available("owner/repo", "v2.3.4")
 
     def test_api_errors_fail_closed(self):
