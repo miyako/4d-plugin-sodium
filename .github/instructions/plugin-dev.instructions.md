@@ -4,6 +4,12 @@ applyTo: "**"
 
 # 4D Plugin Development Guide
 
+> Repository-specific lifecycle: `VERSION` is authoritative and feeds both CMake
+> bundle version fields. Bump version commits metadata only (no tag). The manual
+> **Build** workflow has no inputs, builds the selected immutable SHA, and tags
+> and publishes only after verification/signing/notarization. The generic
+> tag-triggered release examples below are not this repository's release policy.
+
 A comprehensive reference for building a 4D plugin from scratch in C/C++. This document captures the full workflow, conventions, caveats, and tips needed to create, build, test, and ship a 4D plugin on macOS and Windows.
 
 ---

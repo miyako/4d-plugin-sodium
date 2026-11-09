@@ -124,8 +124,36 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This plugin is MIT license
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `test.yml` | tag push / manual | build and test on macOS + Windows |
-| `bump-version.yml` | manual | bump `VERSION`, tag |
-| `release.yml` | `v*.*.*` tag | build, sign, notarize, GitHub Release (needs the Apple signing secrets) |
+| `bump-version.yml` (Bump version) | manual, branch + patch/minor/major | commit source metadata to the selected branch only; no tag or release |
+| `release.yml` (Build) | manual, branch selector only (no inputs) | build, verify, sign, notarize, then tag and create a new GitHub Release (needs the existing Apple signing secrets) |
+
+`VERSION` is the authoritative strict `X.Y.Z` version (no leading zeros or suffixes).
+CMake derives both macOS bundle version fields from it; there is no independent
+bundle build counter. Bump version checks out the selected commit, refuses an
+already-moved branch, and uses a normal non-force branch push to reject concurrent
+updates. Bumping never starts Build; run Build separately on the intended branch.
+
+Build pins every checkout to the dispatch's immutable `github.sha`, even if the
+branch later moves. It rejects existing `vX.Y.Z` tags **or** releases and fails
+on metadata drift or API errors. Publication runs are serialized across all
+branches. The Windows x64 artifact is merged into the universal macOS bundle;
+the ZIP and DMG are signed/notarized as before, with explicit notarization
+acceptance and stapling checks. Only after these succeed does Build recheck
+availability, non-force push the tag at the selected SHA, and create a new release
+with both assets. It never replaces existing tags, releases, or assets.
+
+If tag push succeeds but release creation/upload fails, the tag (and any partial
+release/assets) remains. The workflow reports this partial state; inspect and
+recover manually rather than rerunning expecting an overwrite or automatic
+rollback. The unrelated `test.yml` tag/manual triggers remain unchanged; a tag
+pushed using `GITHUB_TOKEN` does not start another Actions workflow.
+
+Workflow regression checks (Python 3 with PyYAML and `actionlint`, from repo root):
+
+```bash
+python3 -m unittest discover -s .github/scripts -p 'test_*.py'
+actionlint .github/workflows/release.yml .github/workflows/bump-version.yml
+```
 
 ## Possible follow-ups (out of scope)
 
