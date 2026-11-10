@@ -111,6 +111,11 @@ tool4d --dataless --startup-method=test_errors --project=$(pwd)/sodium-test/Proj
 
 Both must print `PASS`. `test_errors` is separate because plugin errors are reported through `Last errors` (see above) and need an `ON ERR CALL` method.
 
+The unsigned [ownership regression](tests/ownership/README.md) compiles the
+complete pinned SDK and actual plugin against synthetic host boundaries with
+ASan/UBSan. It covers temporary error/options owners without invoking
+cryptography or a 4D host.
+
 ## Third-party software
 
 | Component | Version | Licence |
@@ -124,6 +129,7 @@ See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). This plugin is MIT license
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
 | `test.yml` | tag push / manual | build and test on macOS + Windows |
+| `ownership.yml` | relevant-path pushes to `main` or `miyako-sodium-ownership-audit` | unsigned synthetic ownership regression; no plugin packaging or publication |
 | `bump-version.yml` (Bump version) | manual, branch + patch/minor/major | commit source metadata to the selected branch only; no tag or release |
 | `release.yml` (Build) | manual, branch selector only (no inputs) | build, verify, sign, notarize, then tag and create a new GitHub Release (needs the existing Apple signing secrets) |
 
