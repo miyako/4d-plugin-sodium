@@ -1,0 +1,28 @@
+name: Ownership regression
+
+on:
+  push:
+    branches:
+      - main
+      - miyako-sodium-ownership-audit
+    paths:
+      - sodium/sodium-4dplugin.cpp
+      - sodium/sodium-4dplugin.h
+      - 4D-Plugin-SDK
+      - libsodium-cmake
+      - tests/ownership/**
+      - .github/workflows/ownership.yml
+
+permissions:
+  contents: read
+
+jobs:
+  ownership:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Compile real consumers and run unsigned ASan/UBSan ownership fixtures
+        shell: bash
+        run: bash tests/ownership/run.sh "$GITHUB_WORKSPACE" "$RUNNER_TEMP/ownership"

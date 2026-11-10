@@ -73,9 +73,11 @@ static void set_object_string(PA_ObjectRef obj, const char *key, const char *val
     v[i] = 0;
     PA_Unistring ukey = PA_CreateUnistring(k);
     PA_Unistring uval = PA_CreateUnistring(v);
-    PA_Variable var = PA_CreateVariable(eVK_Unistring);
+    PA_Variable var = PA_CreateVariable(eVK_Undefined);
     PA_SetStringVariable(&var, &uval);
     PA_SetObjectProperty(obj, &ukey, var);
+    PA_ClearVariable(&var);
+    PA_DisposeUnistring(&ukey);
 }
 
 static void set_object_real(PA_ObjectRef obj, const char *key, double value) {
@@ -87,6 +89,7 @@ static void set_object_real(PA_ObjectRef obj, const char *key, double value) {
     PA_Variable var = PA_CreateVariable(eVK_Real);
     PA_SetRealVariable(&var, value);
     PA_SetObjectProperty(obj, &ukey, var);
+    PA_DisposeUnistring(&ukey);
 }
 
 // Raises a 4D error through the built-in throw command (errors are exposed via Last errors).
@@ -99,7 +102,10 @@ static void throw_error(PA_long32 code, const char *message) {
     PA_Variable args[1];
     memset(args, 0, sizeof(args));
     PA_SetObjectVariable(&args[0], err);
-    PA_ExecuteCommandByID(CMD_THROW, args, 1);
+    PA_Variable returned = PA_ExecuteCommandByID(CMD_THROW, args, 1);
+    PA_ErrorCode error = PA_GetLastError();
+    PA_ClearVariable(&args[0]);
+    if (error == eER_NoErr) PA_ClearVariable(&returned);
 }
 
 static void return_boolean(PA_PluginParameters params, bool value) {
@@ -194,16 +200,19 @@ struct Argon2Options {
 // Reads a positive integer option. Returns false (after throwing) on failure.
 static bool read_uint_option(PA_ObjectRef obj, PA_Unistring *key, const char *name, uint64_t &out) {
     PA_Variable value = PA_GetObjectProperty(obj, key);
-    PA_VariableKind kind = PA_GetVariableKind(value);
+    PA_ErrorCode error = PA_GetLastError();
     double d = 0;
-    bool numeric = true;
-    switch (kind) {
-        case eVK_Real:    d = PA_GetRealVariable(value); break;
-        case eVK_Longint: d = (double)PA_GetLongintVariable(value); break;
-        case eVK_Integer: d = (double)PA_GetLongintVariable(value); break;
-        default: numeric = false; break;
+    bool numeric = false;
+    if (error == eER_NoErr) {
+        numeric = true;
+        switch (PA_GetVariableKind(value)) {
+            case eVK_Real:    d = PA_GetRealVariable(value); break;
+            case eVK_Longint: d = (double)PA_GetLongintVariable(value); break;
+            case eVK_Integer: d = (double)PA_GetLongintVariable(value); break;
+            default: numeric = false; break;
+        }
+        PA_ClearVariable(&value);
     }
-    PA_ClearVariable(&value);
 
     std::string msg = std::string("The option \"") + name;
     if (!numeric) {
@@ -245,8 +254,14 @@ static bool read_options(PA_PluginParameters params, short index, Argon2Options 
     memset(arg, 0, sizeof(arg));
     PA_SetObjectVariable(&arg[0], obj);
     PA_Variable keysVar = PA_ExecuteCommandByID(CMD_OB_KEYS, arg, 1);
+    PA_ErrorCode error = PA_GetLastError();
+    if (error != eER_NoErr) {
+        throw_error(ERR_BAD_OPTIONS, "The options parameter must be an object.");
+        return false;
+    }
     PA_CollectionRef keys = PA_GetCollectionVariable(keysVar);
     if (!keys) {
+        PA_ClearVariable(&keysVar);
         throw_error(ERR_BAD_OPTIONS, "The options parameter must be an object.");
         return false;
     }
@@ -255,6 +270,18 @@ static bool read_options(PA_PluginParameters params, short index, Argon2Options 
     PA_long32 count = PA_GetCollectionLength(keys);
     for (PA_long32 i = 0; i < count && ok; ++i) {
         PA_Variable keyVar = PA_GetCollectionElement(keys, i);
+        error = PA_GetLastError();
+        if (error != eER_NoErr) {
+            throw_error(ERR_OPTION_UNKNOWN, "Unknown option. Supported options: \"memory\", \"iterations\".");
+            ok = false;
+            break;
+        }
+        if (PA_GetVariableKind(keyVar) != eVK_Unistring) {
+            PA_ClearVariable(&keyVar);
+            throw_error(ERR_OPTION_UNKNOWN, "Unknown option. Supported options: \"memory\", \"iterations\".");
+            ok = false;
+            break;
+        }
         PA_Unistring key = PA_GetStringVariable(keyVar);
         if (utf16_equals_ascii(&key, "memory")) {
             ok = read_uint_option(obj, &key, "memory", opts.memoryKiB);
